@@ -56,21 +56,64 @@ async function io($: Engine): Promise<Io> {
   return ioCache
 }
 
+async function configDir($: Engine): Promise<string> {
+  const config = (await $.env.get('CLAUDE_CONFIG_DIR')) ?? `${(await $.env.get('USERPROFILE')) ?? (await $.env.get('HOME')) ?? '~'}/.claude`
+  return config.replace(/\\/g, '/')
+}
+
 async function projectsDir($: Engine): Promise<string> {
   const override = projectsOverride
   if (override) return override.replace(/\\/g, '/')
-  const config = (await $.env.get('CLAUDE_CONFIG_DIR')) ?? `${(await $.env.get('USERPROFILE')) ?? (await $.env.get('HOME')) ?? '~'}/.claude`
-  return `${config.replace(/\\/g, '/')}/projects`
+  return `${await configDir($)}/projects`
 }
 
 function projectSlug(cwd: string) {
   return cwd.replace(/[^A-Za-z0-9]/g, '-')
 }
+
+// The key record lives in a fixed file, <config>/transcript-vault/vault.json,
+// not in the plugin's store: a store is per installed copy, so a reinstall,
+// another marketplace or a dev copy would not find the key and could not open
+// the vaults. Holds the public key, the wrapped private key and whether
+// automatic locking is on. Nothing in it opens a vault without the OS
+// keystore or the passphrase.
+type VaultFile = { keyring?: Keyring; enabled?: boolean }
+
+async function vaultFilePath($: Engine): Promise<string> {
+  return `${await configDir($)}/transcript-vault/vault.json`
+}
+
+async function readVaultFile($: Engine): Promise<VaultFile> {
+  const path = await vaultFilePath($)
+  if (!(await $.fs.exists(path))) {
+    // v0.1.0 kept the record in the plugin's store: move it once.
+    const legacy = (await $.store.get('keyring')) as Keyring | undefined
+    if (!legacy) return {}
+    const moved: VaultFile = { keyring: legacy, enabled: (await $.store.get('enabled')) === true }
+    await $.fs.write(path, JSON.stringify(moved, null, 2))
+    return moved
+  }
+  // A file that exists but does not parse is an error, never "not set up":
+  // treating it as missing would let /vault setup make a new key.
+  return JSON.parse(await $.fs.read(path)) as VaultFile
+}
+
+async function writeVaultFile($: Engine, change: VaultFile) {
+  const next = { ...(await readVaultFile($)), ...change }
+  await $.fs.write(await vaultFilePath($), JSON.stringify(next, null, 2))
+}
+
 async function getKeyring($: Engine) {
-  return (await $.store.get('keyring')) as Keyring | undefined
+  return (await readVaultFile($)).keyring
 }
 async function setKeyring($: Engine, kr: Keyring) {
-  await $.store.set('keyring', kr)
+  await writeVaultFile($, { keyring: kr })
+}
+async function isEnabled($: Engine) {
+  return (await readVaultFile($)).enabled === true
+}
+async function setEnabled($: Engine, on: boolean) {
+  await writeVaultFile($, { enabled: on })
 }
 
 /** The private key, if it can be had without asking the person. */
@@ -90,7 +133,7 @@ async function key($: Engine): Promise<Uint8Array | undefined> {
 
 async function sweep($: Engine, all: boolean) {
   const kr = await getKeyring($)
-  if (!kr || (await $.store.get('enabled')) !== true) return undefined
+  if (!kr || !(await isEnabled($))) return undefined
   const pk = core.unb64(kr.pk)
   const current = await $.session.id()
   const ended = ((await $.store.get('ended')) as string[] | undefined) ?? []
@@ -205,7 +248,7 @@ async function finishPassphrase($: Engine, value: string) {
   pending = undefined
   await $.ui.close({ id: PANE })
   if (wasSetup) {
-    await $.store.set('enabled', true)
+    await setEnabled($, true)
     const c = await sweep($, false)
     $.ui.toast(`Vault set up with a passphrase. ${c ? describeSweep(c) : ''}`)
   } else {
@@ -279,12 +322,12 @@ export const register: Register = (on, options) => {
     const [sub = 'help', ...rest] = e.args.trim().split(/\s+/).filter(Boolean)
     const arg = rest.join(' ')
     const kr = await getKeyring($)
-    const enabled = (await $.store.get('enabled')) === true
+    const enabled = await isEnabled($)
 
     if (sub === 'setup') {
       if (kr && enabled) return { text: 'Already set up. `/vault status` shows the details.' }
       if (kr && !enabled) {
-        await $.store.set('enabled', true)
+        await setEnabled($, true)
         const c = await sweep($, false)
         return { text: `Automatic locking is back on. ${c ? describeSweep(c) : ''}` }
       }
@@ -292,7 +335,7 @@ export const register: Register = (on, options) => {
         const kp = core.newKeypair()
         const entry = await core.keystoreSave(await io($), kp.sk)
         await setKeyring($, { v: 1, pk: core.b64(kp.pk), keystore: entry, createdAt: await $.clock.now() })
-        await $.store.set('enabled', true)
+        await setEnabled($, true)
         unlocked = kp.sk
         const c = await sweep($, false)
         return {
@@ -338,7 +381,7 @@ export const register: Register = (on, options) => {
     }
 
     if (sub === 'lock') {
-      if (!enabled) await $.store.set('enabled', true)
+      if (!enabled) await setEnabled($, true)
       const c = await sweep($, true)
       if (mode === 'passphrase') unlocked = undefined
       return { text: `${c ? describeSweep(c) : ''}${mode === 'passphrase' ? ' The key was cleared from memory.' : ''}\n\nThis session stays readable until it ends; it is encrypted at the next session start.` }
@@ -363,7 +406,7 @@ export const register: Register = (on, options) => {
         for (const item of every) {
           try { await core.openSession(await io($), sk, item) } catch (err) { failed.push(`${item.sid.slice(0, 8)}: ${String((err as Error).message).slice(0, 100)}`) }
         }
-        await $.store.set('enabled', false)
+        await setEnabled($, false)
         return {
           text:
             `Decrypted ${every.length - failed.length} of ${every.length} sessions and turned automatic locking off ` +

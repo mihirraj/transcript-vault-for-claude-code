@@ -43,6 +43,7 @@ Claude also gets a tool, `search_vault`, so you can ask things like *"what did w
   - `passphrase`: scrypt (N=2^17, r=8, p=1) wraps the key. You run `/vault unlock` once per session to search or open. **If you lose the passphrase, the history can't be recovered.**
   - Changing modes moves the key the next time you unlock or set a passphrase. `/vault status` tells you if a move is pending.
 - **Files:** `<project>/<session>.jsonl` becomes `<project>/<session>.vault/seg-000001.tv …`. Before the plaintext is deleted, each segment is written, read back and checked. If a file changes while it's being encrypted, it's left alone until next time.
+- **The key record** is stored in `~/.claude/transcript-vault/vault.json` (under `CLAUDE_CONFIG_DIR` if you set it). It holds the public key, the wrapped private key, and whether automatic locking is on. It stays put through reinstalls and updates. **Back it up:** without it, nobody can open your vaults, you included. It's useless on its own, because it needs your passphrase or your OS account's keystore. (v0.1.0 kept this record in the plugin's own store, and v0.1.1 moves it here the first time it runs.)
 
 ## Options
 
@@ -75,7 +76,7 @@ Set these in `/config` or `pluginConfigs` in your settings:
 
 ## Uninstall
 
-Run `/vault open all` first, or your history stays encrypted. Then `/plugin uninstall transcript-vault`. In keystore mode on macOS or Linux, the key stays in your Keychain or Secret Service under the name `transcript-vault`, and you can delete it there.
+Run `/vault open all` first, or your history stays encrypted. Then `/plugin uninstall transcript-vault`. If you reinstall later, the plugin picks up `~/.claude/transcript-vault/vault.json` again, so don't delete that file while any `.vault` folders remain. In keystore mode on macOS or Linux, the key stays in your Keychain or Secret Service under the name `transcript-vault`, and you can delete it there.
 
 ## Development
 

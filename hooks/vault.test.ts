@@ -36,8 +36,31 @@ test('rows are left alone when masking is off (the default)', async ($, on) => {
 
 test('nothing is encrypted until /vault setup; the command says so', async ($, on) => {
   mock.store(on)
+  mock.env(on, { HOME: '/home/test' })
+  on('fs.exists', () => ({ value: false })) // no vault.json yet
   const out = await $.command.run({ command: "vault", args: "list" } as never)
   expect(String((out as { text?: string }).text)).toContain('not set up yet')
+})
+
+test('a key record from v0.1.0 (plugin store) is moved to vault.json, not lost', async ($, on) => {
+  const legacy = { v: 1, pk: 'AAAA', createdAt: 1, passphrase: { kdf: 'scrypt' } }
+  mock.store(on, { keyring: legacy, enabled: true })
+  mock.env(on, { HOME: '/home/test' })
+  const written: Record<string, string> = {}
+  on('fs.exists', ($, e) => ({ value: (e as { path: string }).path in written }))
+  on('fs.read', ($, e) => ({ value: written[(e as { path: string }).path] ?? '' }))
+  on('fs.write', ($, e) => { const w = e as { path: string; text: string }; written[w.path] = w.text; return { value: undefined } })
+  on('fs.list', () => ({ value: [] }))
+  on('session.cwd', () => ({ value: '/home/test/proj' }))
+  on('process.run', () => ({ value: { exitCode: 0, stdout: 'Linux\n', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }))
+  const out = await $.command.run({ command: "vault", args: "list" } as never)
+  expect(String((out as { text?: string }).text).includes('not set up')).toBe(false)
+  // the engine normalizes paths for the platform, so match on the ending
+  const name = Object.keys(written).find(p => /[\\/]\.claude[\\/]transcript-vault[\\/]vault\.json$/.test(p))
+  expect(name).toBeDefined()
+  const file = written[name!] ?? '{}'
+  expect(JSON.parse(file).keyring.pk).toBe('AAAA')
+  expect(JSON.parse(file).enabled).toBe(true)
 })
 
 test('the search tool refuses while there is no key', async ($, on) => {

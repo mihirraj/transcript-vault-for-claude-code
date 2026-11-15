@@ -1,6 +1,6 @@
 {
   "name": "transcript-vault",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Encrypts idle Claude Code session transcripts at rest (X25519 + XChaCha20-Poly1305), decrypts them on demand for /resume, and lets Claude search the encrypted history.",
   "author": { "name": "Mihir Raj" },
   "license": "MIT",
