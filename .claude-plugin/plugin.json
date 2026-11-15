@@ -1,0 +1,36 @@
+{
+  "name": "transcript-vault",
+  "version": "0.1.0",
+  "description": "Encrypts idle Claude Code session transcripts at rest (X25519 + XChaCha20-Poly1305), decrypts them on demand for /resume, and lets Claude search the encrypted history.",
+  "author": { "name": "Mihir Raj" },
+  "license": "MIT",
+  "keywords": ["security", "encryption", "privacy", "transcripts"],
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "keyMode": {
+      "type": "string",
+      "title": "Key protection",
+      "description": "keystore: key kept by the OS (Windows DPAPI, macOS Keychain, Linux Secret Service), no prompts. passphrase: key protected by a passphrase you enter with /vault unlock each session.",
+      "options": ["keystore", "passphrase"],
+      "default": "keystore"
+    },
+    "maskSecrets": {
+      "type": "boolean",
+      "title": "Mask secrets in transcripts",
+      "description": "Replace API keys, tokens, private keys and password assignments with [REDACTED:kind] as rows are saved. The model sees the masked text too.",
+      "default": false
+    },
+    "idleMinutes": {
+      "type": "number",
+      "title": "Idle minutes before encrypting",
+      "description": "A session untouched this long is encrypted at the next session start. Sessions that ended cleanly are encrypted right away.",
+      "default": 60
+    },
+    "projectsDir": {
+      "type": "string",
+      "title": "Transcripts folder override",
+      "description": "Leave empty to use <Claude config dir>/projects. For testing on a copy.",
+      "default": ""
+    }
+  }
+}

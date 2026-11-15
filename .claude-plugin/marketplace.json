@@ -1,0 +1,16 @@
+{
+  "name": "transcript-vault",
+  "owner": {
+    "name": "Mihir Raj"
+  },
+  "metadata": {
+    "description": "transcript-vault: encrypt Claude Code transcripts at rest"
+  },
+  "plugins": [
+    {
+      "name": "transcript-vault",
+      "source": "./",
+      "description": "Encrypt Claude Code session transcripts at rest; decrypt on demand for /resume; search the encrypted history."
+    }
+  ]
+}
